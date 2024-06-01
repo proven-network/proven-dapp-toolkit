@@ -33,19 +33,36 @@ export const ProvenDappToolkit = (
   const pcrsStorageKey = `${storageKeyPrefix}:pcrs`
 
   let keyPair: elliptic.ec.KeyPair
-  if (localStorage.getItem(signingKeyStorageKey)) {
-    keyPair = ec.keyFromPrivate(localStorage.getItem(signingKeyStorageKey)!, "hex")
-  } else {
-    keyPair = ec.genKeyPair()
-    localStorage.setItem(signingKeyStorageKey, keyPair.getPrivate("hex"))
+
+  const refreshSigningKey = () => {
+    if (localStorage.getItem(signingKeyStorageKey)) {
+      keyPair = ec.keyFromPrivate(localStorage.getItem(signingKeyStorageKey)!, "hex")
+    } else {
+      keyPair = ec.genKeyPair()
+      localStorage.setItem(signingKeyStorageKey, keyPair.getPrivate("hex"))
+    }
   }
+
+  refreshSigningKey()
 
   if (localStorage.getItem(pcrsStorageKey)) {
     verifiedPcrs = JSON.parse(localStorage.getItem(pcrsStorageKey)!)
     isReady = true
   }
 
-  const radixDappToolkit = RadixDappToolkit(options)
+  const radixDappToolkit = RadixDappToolkit({
+    ...options,
+    onDisconnect: () => {
+      localStorage.removeItem(signingKeyStorageKey);
+      localStorage.removeItem(pcrsStorageKey);
+
+      // TODO: revoke public key on remote server also
+
+      isReady = false
+      refreshSigningKey()
+      verifiedPcrs = undefined
+    }
+  })
 
   const provenNetworkOrigin = {
     2: 'https://test.weareborderline.com',
