@@ -18,6 +18,7 @@ export const ProvenDappToolkit = (
   options: RadixDappToolkitOptions & ProvenDappToolkitOptions,
 ): [RadixDappToolkit, ProvenDappToolkit] => {
   const {
+    applicationName,
     dAppDefinitionAddress,
     expectedPcrs,
     networkId,
@@ -86,6 +87,8 @@ export const ProvenDappToolkit = (
     body.append("public_key", new Blob([publicKeyInput], { type: 'application/octet-stream' }))
     body.append("nonce", new Blob([nonceInput], { type: 'application/octet-stream' }))
     body.append("signed_challenge", new Blob([JSON.stringify(proofs)], { type: 'application/json' }))
+    body.append("dapp_definition_address", dAppDefinitionAddress)
+    if (applicationName) body.append("application_name", applicationName)
 
     // send attestation request
     const response = await fetch(`${provenNetworkOrigin}/verify`, {
