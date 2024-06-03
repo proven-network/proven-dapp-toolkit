@@ -6,7 +6,7 @@ import { Sign1 } from "@auth0/cose"
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509"
 import { type WalletData } from '@radixdlt/radix-dapp-toolkit'
 import elliptic from 'elliptic'
-import { uint8ArrayToHex, areEqualUint8Array } from './helpers/uint8array'
+import { areEqualUint8Array, hexToUint8Array, uint8ArrayToHex } from './helpers/uint8array'
 import { rootCertificate } from './enclave-root-cert'
 
 export type ProvenDappToolkit = {
@@ -21,49 +21,70 @@ export const ProvenDappToolkit = (
     applicationName,
     dAppDefinitionAddress,
     expectedPcrs,
+    logger,
     networkId,
   } = options || {}
 
   let isReady: boolean = false
-  let verifiedPcrs: Pcrs | undefined
+  // @ts-ignore: Unreachable code error
+  let attestedSessionId: Uint8Array | undefined
+  let attestedPcrs: Pcrs | undefined
+  // @ts-ignore: Unreachable code error
+  let attestedVerifyingKey: elliptic.eddsa.KeyPair | undefined
 
-  const ec = new elliptic.ec('ed25519')
+  const ec = new elliptic.eddsa('ed25519')
 
   const storageKeyPrefix = `prvn:${dAppDefinitionAddress}:${networkId}`
+  const sessionIdStorageKey = `${storageKeyPrefix}:session_id`
   const signingKeyStorageKey = `${storageKeyPrefix}:signing_key`
   const pcrsStorageKey = `${storageKeyPrefix}:pcrs`
+  const verifyingKeyStorageKey = `${storageKeyPrefix}:verifying_key`
 
-  let keyPair: elliptic.ec.KeyPair
+  let keyPair: elliptic.eddsa.KeyPair
 
   const refreshSigningKey = () => {
     if (localStorage.getItem(signingKeyStorageKey)) {
-      keyPair = ec.keyFromPrivate(localStorage.getItem(signingKeyStorageKey)!, "hex")
+      keyPair = ec.keyFromSecret(localStorage.getItem(signingKeyStorageKey)!)
     } else {
-      keyPair = ec.genKeyPair()
-      localStorage.setItem(signingKeyStorageKey, keyPair.getPrivate("hex"))
+      const newSecretHex = uint8ArrayToHex(crypto.getRandomValues(new Uint8Array(32)))
+      keyPair = ec.keyFromSecret(newSecretHex)
+      localStorage.setItem(signingKeyStorageKey, newSecretHex)
     }
   }
 
   refreshSigningKey()
-
-  if (localStorage.getItem(pcrsStorageKey)) {
-    verifiedPcrs = JSON.parse(localStorage.getItem(pcrsStorageKey)!)
-    isReady = true
-  }
 
   const radixDappToolkit = RadixDappToolkit({
     ...options,
     onDisconnect: () => {
       localStorage.removeItem(signingKeyStorageKey);
       localStorage.removeItem(pcrsStorageKey);
+      localStorage.removeItem(sessionIdStorageKey);
+      localStorage.removeItem(verifyingKeyStorageKey);
 
       // TODO: revoke public key on remote server also
 
       isReady = false
       refreshSigningKey()
-      verifiedPcrs = undefined
+      attestedPcrs = undefined
     }
   })
+
+  if (!!radixDappToolkit.walletApi.getWalletData().persona
+    && localStorage.getItem(pcrsStorageKey)
+    && localStorage.getItem(sessionIdStorageKey)
+    && localStorage.getItem(verifyingKeyStorageKey)
+  ) {
+    attestedPcrs = JSON.parse(localStorage.getItem(pcrsStorageKey)!)
+    attestedSessionId = hexToUint8Array(localStorage.getItem(sessionIdStorageKey)!)
+    attestedVerifyingKey = ec.keyFromPublic(localStorage.getItem(verifyingKeyStorageKey)!)
+    isReady = true
+  } else {
+    // remove all existing data if persona not present or missing any attested data
+    localStorage.removeItem(pcrsStorageKey)
+    localStorage.removeItem(sessionIdStorageKey)
+    localStorage.removeItem(verifyingKeyStorageKey)
+  }
 
   const provenNetworkOrigin = {
     2: 'https://test.weareborderline.com',
@@ -76,8 +97,18 @@ export const ProvenDappToolkit = (
   radixDappToolkit.walletApi.provideChallengeGenerator(getChallenge)
 
   const fetchAndVerifyAttestation = async (proofs: WalletData['proofs']) => {
+    const personaProofs = proofs.filter(({ type }) => type === 'persona')
+
+    if (personaProofs.length === 0) {
+      logger?.debug("No persona proofs found. Use `.withProof()` on persona data request to enable Proven.")
+    }
+
+    if (personaProofs.length > 1) {
+      throw new Error("Multiple persona proofs found. Only one is allowed.")
+    }
+
     // get bytes from private key
-    const publicKeyInput = new Uint8Array(keyPair.getPublic("array"))
+    const publicKeyInput = new Uint8Array(keyPair.getPublic())
 
     // generate nonce to verify in response
     const nonceInput = new Uint8Array(32)
@@ -95,26 +126,40 @@ export const ProvenDappToolkit = (
       method: "POST",
       body
     })
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch attestation document.")
+    }
+
     const data = new Uint8Array(await response.arrayBuffer())
 
     // decode COSE elements
     const coseElements = await cbor.decodeFirst(data) as Uint8Array[]
-    const { cabundle, certificate, nonce, pcrs: rawPcrs, public_key } = await cbor.decodeFirst(coseElements[2]!) as { cabundle: Uint8Array[], certificate: Uint8Array, nonce: Uint8Array, pcrs: Map<number, Uint8Array>, public_key: Uint8Array }
-    const leaf = new X509Certificate(certificate)
-
-    // verify public key echoed
-    if (!areEqualUint8Array(publicKeyInput, public_key)) {
-      throw new Error("public key mismatch")
+    const {
+      cabundle,
+      certificate,
+      nonce,
+      pcrs: rawPcrs,
+      public_key: verifyingKey,
+      user_data: sessionId
+    } = await cbor.decodeFirst(coseElements[2]!) as {
+      cabundle: Uint8Array[],
+      certificate: Uint8Array,
+      nonce: Uint8Array,
+      pcrs: Map<number, Uint8Array>,
+      public_key: Uint8Array,
+      user_data: Uint8Array
     }
+    const leaf = new X509Certificate(certificate)
 
     // verify nonce or throw error
     if (!areEqualUint8Array(nonceInput, nonce)) {
-      throw new Error("nonce mismatch")
+      throw new Error("Attestation nonce does not match expected value.")
     }
 
     // verify leaf still valid or throw error
     if (leaf.notAfter < new Date()) {
-      throw new Error("certificate expired")
+      throw new Error("Attestation document certificate has expired.")
     }
 
     // verify cose sign1 or throw error
@@ -127,7 +172,7 @@ export const ProvenDappToolkit = (
       certificates: cabundle.map((cert) => new X509Certificate(cert)),
     }).build(leaf)
     if (!chain[chain.length - 1]?.equal(knownCa)) {
-      throw new Error("chain ca certificate mismatch")
+      throw new Error("x509 certificate chain does not have expected certificate authority.")
     }
 
     const pcrs: Pcrs = {
@@ -142,15 +187,20 @@ export const ProvenDappToolkit = (
     // verify expected PCRs or throw error
     expectedPcrs && Object.entries(expectedPcrs).forEach(([index, expectedValue]) => {
       if (pcrs[index as unknown as keyof Pcrs] !== expectedValue) {
-        throw new Error(`PCR ${index} mismatch`)
+        throw new Error(`PCR${index} does not match expected value.`)
       }
     })
 
-    // save verified PCRs
+    // save verified details
+    localStorage.setItem(sessionIdStorageKey, uint8ArrayToHex(sessionId))
     localStorage.setItem(pcrsStorageKey, JSON.stringify(pcrs))
+    localStorage.setItem(verifyingKeyStorageKey, uint8ArrayToHex(verifyingKey))
 
     isReady = true
-    verifiedPcrs = pcrs
+
+    attestedPcrs = pcrs
+    attestedSessionId = sessionId
+    attestedVerifyingKey = ec.keyFromPublic(uint8ArrayToHex(verifyingKey))
   }
 
   radixDappToolkit.walletApi.dataRequestControl(async ({ proofs }) => {
@@ -158,7 +208,7 @@ export const ProvenDappToolkit = (
   })
 
   return [radixDappToolkit, {
-    pcrs: () => verifiedPcrs,
+    pcrs: () => attestedPcrs,
     ready: () => isReady,
   }]
 }
