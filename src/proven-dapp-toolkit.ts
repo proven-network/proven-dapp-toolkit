@@ -59,21 +59,16 @@ export const ProvenDappToolkit = (
     }
   })
 
-  if (!!radixDappToolkit.walletApi.getWalletData().persona) {
-    if (localStorage.getItem(sessionStorageKey)) {
-      const parsedSession = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
+  if (localStorage.getItem(sessionStorageKey)) {
+    const parsedSession = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
 
-      session = {
-        ...parsedSession,
-        signingKey: ec.keyFromSecret(parsedSession.signingKey),
-        verifyingKey: ec.keyFromPublic(parsedSession.verifyingKey),
-      }
-
-      isReady = true
+    session = {
+      ...parsedSession,
+      signingKey: ec.keyFromSecret(parsedSession.signingKey),
+      verifyingKey: ec.keyFromPublic(parsedSession.verifyingKey),
     }
-  } else {
-    // remove any existing data if persona not present
-    localStorage.removeItem(sessionStorageKey)
+
+    isReady = true
   }
 
   const provenNetworkOrigin = {
@@ -196,8 +191,8 @@ export const ProvenDappToolkit = (
     const serializableSession: SerializableSession = {
       sessionId: session.sessionId,
       pcrs: session.pcrs,
-      signingKey: session.signingKey.getSecret().toString('hex'),
-      verifyingKey: session.verifyingKey.getPublic().toString('hex'),
+      signingKey: session.signingKey.getSecret('hex'),
+      verifyingKey: session.verifyingKey.getPublic('hex'),
     }
 
     localStorage.setItem(sessionStorageKey, JSON.stringify(serializableSession))
