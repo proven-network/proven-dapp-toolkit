@@ -1,7 +1,7 @@
 {
   "name": "@proven-network/proven-dapp-toolkit",
   "description": "Front-end SDK for Proven Network.",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "homepage": "https://developers.proven.network",
   "engines": {
     "node": ">=16.0.0"
