@@ -6,12 +6,26 @@ import { Sign1 } from "@auth0/cose"
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509"
 import { type WalletData } from '@radixdlt/radix-dapp-toolkit'
 import elliptic from 'elliptic'
-import { areEqualUint8Array, hexToUint8Array, uint8ArrayToHex } from './helpers/uint8array'
+import { areEqualUint8Array, uint8ArrayToHex } from './helpers/uint8array'
 import { rootCertificate } from './enclave-root-cert'
 
 export type ProvenDappToolkit = {
   pcrs: () => Pcrs | undefined
   ready: () => boolean
+}
+
+type Session = {
+  sessionId: string,
+  pcrs: Pcrs,
+  signingKey: elliptic.eddsa.KeyPair,
+  verifyingKey: elliptic.eddsa.KeyPair,
+}
+
+type SerializableSession = {
+  sessionId: string,
+  pcrs: Pcrs,
+  signingKey: string,   // hex
+  verifyingKey: string, // hex
 }
 
 export const ProvenDappToolkit = (
@@ -26,64 +40,40 @@ export const ProvenDappToolkit = (
   } = options || {}
 
   let isReady: boolean = false
-  // @ts-ignore: Unreachable code error
-  let attestedSessionId: Uint8Array | undefined
-  let attestedPcrs: Pcrs | undefined
-  // @ts-ignore: Unreachable code error
-  let attestedVerifyingKey: elliptic.eddsa.KeyPair | undefined
+  let session: Session | undefined
 
   const ec = new elliptic.eddsa('ed25519')
 
   const storageKeyPrefix = `prvn:${dAppDefinitionAddress}:${networkId}`
-  const sessionIdStorageKey = `${storageKeyPrefix}:session_id`
-  const signingKeyStorageKey = `${storageKeyPrefix}:signing_key`
-  const pcrsStorageKey = `${storageKeyPrefix}:pcrs`
-  const verifyingKeyStorageKey = `${storageKeyPrefix}:verifying_key`
-
-  let keyPair: elliptic.eddsa.KeyPair
-
-  const refreshSigningKey = () => {
-    if (localStorage.getItem(signingKeyStorageKey)) {
-      keyPair = ec.keyFromSecret(localStorage.getItem(signingKeyStorageKey)!)
-    } else {
-      const newSecretHex = uint8ArrayToHex(crypto.getRandomValues(new Uint8Array(32)))
-      keyPair = ec.keyFromSecret(newSecretHex)
-      localStorage.setItem(signingKeyStorageKey, newSecretHex)
-    }
-  }
-
-  refreshSigningKey()
+  const sessionStorageKey = `${storageKeyPrefix}:session`
 
   const radixDappToolkit = RadixDappToolkit({
     ...options,
     onDisconnect: () => {
-      localStorage.removeItem(signingKeyStorageKey);
-      localStorage.removeItem(pcrsStorageKey);
-      localStorage.removeItem(sessionIdStorageKey);
-      localStorage.removeItem(verifyingKeyStorageKey);
+      localStorage.removeItem(sessionStorageKey);
 
       // TODO: revoke public key on remote server also
 
       isReady = false
-      refreshSigningKey()
-      attestedPcrs = undefined
+      session = undefined
     }
   })
 
-  if (!!radixDappToolkit.walletApi.getWalletData().persona
-    && localStorage.getItem(pcrsStorageKey)
-    && localStorage.getItem(sessionIdStorageKey)
-    && localStorage.getItem(verifyingKeyStorageKey)
-  ) {
-    attestedPcrs = JSON.parse(localStorage.getItem(pcrsStorageKey)!)
-    attestedSessionId = hexToUint8Array(localStorage.getItem(sessionIdStorageKey)!)
-    attestedVerifyingKey = ec.keyFromPublic(localStorage.getItem(verifyingKeyStorageKey)!)
-    isReady = true
+  if (!!radixDappToolkit.walletApi.getWalletData().persona) {
+    if (localStorage.getItem(sessionStorageKey)) {
+      const parsedSession = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
+
+      session = {
+        ...parsedSession,
+        signingKey: ec.keyFromSecret(parsedSession.signingKey),
+        verifyingKey: ec.keyFromPublic(parsedSession.verifyingKey),
+      }
+
+      isReady = true
+    }
   } else {
-    // remove all existing data if persona not present or missing any attested data
-    localStorage.removeItem(pcrsStorageKey)
-    localStorage.removeItem(sessionIdStorageKey)
-    localStorage.removeItem(verifyingKeyStorageKey)
+    // remove any existing data if persona not present
+    localStorage.removeItem(sessionStorageKey)
   }
 
   const provenNetworkOrigin = {
@@ -107,8 +97,11 @@ export const ProvenDappToolkit = (
       throw new Error("Multiple persona proofs found. Only one is allowed.")
     }
 
+    const newSecretHex = uint8ArrayToHex(crypto.getRandomValues(new Uint8Array(32)))
+    const signingKey = ec.keyFromSecret(newSecretHex)
+
     // get bytes from private key
-    const publicKeyInput = new Uint8Array(keyPair.getPublic())
+    const publicKeyInput = new Uint8Array(signingKey.getPublic())
 
     // generate nonce to verify in response
     const nonceInput = new Uint8Array(32)
@@ -191,16 +184,23 @@ export const ProvenDappToolkit = (
       }
     })
 
-    // save verified details
-    localStorage.setItem(sessionIdStorageKey, uint8ArrayToHex(sessionId))
-    localStorage.setItem(pcrsStorageKey, JSON.stringify(pcrs))
-    localStorage.setItem(verifyingKeyStorageKey, uint8ArrayToHex(verifyingKey))
-
     isReady = true
+    session = {
+      sessionId: uint8ArrayToHex(sessionId),
+      pcrs,
+      signingKey,
+      verifyingKey: ec.keyFromPublic(uint8ArrayToHex(verifyingKey)),
+    }
 
-    attestedPcrs = pcrs
-    attestedSessionId = sessionId
-    attestedVerifyingKey = ec.keyFromPublic(uint8ArrayToHex(verifyingKey))
+    // save attested details
+    const serializableSession: SerializableSession = {
+      sessionId: session.sessionId,
+      pcrs: session.pcrs,
+      signingKey: session.signingKey.getSecret().toString('hex'),
+      verifyingKey: session.verifyingKey.getPublic().toString('hex'),
+    }
+
+    localStorage.setItem(sessionStorageKey, JSON.stringify(serializableSession))
   }
 
   radixDappToolkit.walletApi.dataRequestControl(async ({ proofs }) => {
@@ -208,7 +208,7 @@ export const ProvenDappToolkit = (
   })
 
   return [radixDappToolkit, {
-    pcrs: () => attestedPcrs,
+    pcrs: () => session?.pcrs,
     ready: () => isReady,
   }]
 }
