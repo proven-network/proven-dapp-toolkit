@@ -1,4 +1,4 @@
-import { Pcrs, ProvenDappToolkitOptions } from './_types'
+import { Pcrs, ProvenDappToolkitOptions, Session, SerializableSession } from './_types'
 
 import { RadixDappToolkit, RadixDappToolkitOptions } from '@radixdlt/radix-dapp-toolkit'
 import * as cbor from "cbor-web"
@@ -8,24 +8,12 @@ import { type WalletData } from '@radixdlt/radix-dapp-toolkit'
 import elliptic from 'elliptic'
 import { areEqualUint8Array, uint8ArrayToHex } from './helpers/uint8array'
 import { rootCertificate } from './enclave-root-cert'
+import { WebsocketClient } from './websocket/websocket-client'
 
 export type ProvenDappToolkit = {
   pcrs: () => Pcrs | undefined
   ready: () => boolean
-}
-
-type Session = {
-  sessionId: string,
-  pcrs: Pcrs,
-  signingKey: elliptic.eddsa.KeyPair,
-  verifyingKey: elliptic.eddsa.KeyPair,
-}
-
-type SerializableSession = {
-  sessionId: string,
-  pcrs: Pcrs,
-  signingKey: string,   // hex
-  verifyingKey: string, // hex
+  webSocketClient: WebsocketClient
 }
 
 export const ProvenDappToolkit = (
@@ -42,7 +30,7 @@ export const ProvenDappToolkit = (
   let isReady: boolean = false
   let session: Session | undefined
 
-  const ec = new elliptic.eddsa('ed25519')
+  const eddsa = new elliptic.eddsa('ed25519')
 
   const storageKeyPrefix = `prvn:${dAppDefinitionAddress}:${networkId}`
   const sessionStorageKey = `${storageKeyPrefix}:session`
@@ -64,19 +52,30 @@ export const ProvenDappToolkit = (
 
     session = {
       ...parsedSession,
-      signingKey: ec.keyFromSecret(parsedSession.signingKey),
-      verifyingKey: ec.keyFromPublic(parsedSession.verifyingKey),
+      signingKey: eddsa.keyFromSecret(parsedSession.signingKey),
+      verifyingKey: eddsa.keyFromPublic(parsedSession.verifyingKey),
     }
 
     isReady = true
   }
 
-  const provenNetworkOrigin = {
-    2: 'https://test.weareborderline.com',
+  const provenNetworkHost = {
+    2: 'test.weareborderline.com',
   }[networkId]
 
+  if (!provenNetworkHost) {
+    throw new Error("Network not supported.")
+  }
+
+  const webSocketClient = WebsocketClient({
+    eddsa,
+    host: provenNetworkHost,
+    logger,
+    sessionStorageKey,
+  })
+
   const getChallenge: () => Promise<string> = () =>
-    fetch(`${provenNetworkOrigin}/create-challenge`)
+    fetch(`https://${provenNetworkHost}/create-challenge`)
       .then((res) => res.text())
 
   radixDappToolkit.walletApi.provideChallengeGenerator(getChallenge)
@@ -93,7 +92,7 @@ export const ProvenDappToolkit = (
     }
 
     const newSecretHex = uint8ArrayToHex(crypto.getRandomValues(new Uint8Array(32)))
-    const signingKey = ec.keyFromSecret(newSecretHex)
+    const signingKey = eddsa.keyFromSecret(newSecretHex)
 
     // get bytes from private key
     const publicKeyInput = new Uint8Array(signingKey.getPublic())
@@ -110,7 +109,7 @@ export const ProvenDappToolkit = (
     if (applicationName) body.append("application_name", applicationName)
 
     // send attestation request
-    const response = await fetch(`${provenNetworkOrigin}/verify`, {
+    const response = await fetch(`https://${provenNetworkHost}/verify`, {
       method: "POST",
       body
     })
@@ -184,7 +183,7 @@ export const ProvenDappToolkit = (
       sessionId: uint8ArrayToHex(sessionId),
       pcrs,
       signingKey,
-      verifyingKey: ec.keyFromPublic(uint8ArrayToHex(verifyingKey)),
+      verifyingKey: eddsa.keyFromPublic(uint8ArrayToHex(verifyingKey)),
     }
 
     // save attested details
@@ -205,5 +204,6 @@ export const ProvenDappToolkit = (
   return [radixDappToolkit, {
     pcrs: () => session?.pcrs,
     ready: () => isReady,
+    webSocketClient, // TODO: don't actually expose this in final API
   }]
 }
