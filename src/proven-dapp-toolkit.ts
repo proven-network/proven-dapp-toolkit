@@ -35,6 +35,18 @@ export const ProvenDappToolkit = (
   const storageKeyPrefix = `prvn:${dAppDefinitionAddress}:${networkId}`
   const sessionStorageKey = `${storageKeyPrefix}:session`
 
+  // Quick hack to purge current session if wallet storage removed or zeroed - must run before RadixDappToolkit init
+  const rdtWalletKey = `rdt:${dAppDefinitionAddress}:${networkId}`
+  console.log(localStorage.getItem(rdtWalletKey))
+  if (localStorage.getItem(rdtWalletKey)) {
+    try {
+      const state = JSON.parse(localStorage.getItem(rdtWalletKey)!) as { sharedData?: { persona?: { proof?: boolean } } }
+      if (!state.sharedData?.persona?.proof) { localStorage.removeItem(sessionStorageKey) }
+    } catch (e) { localStorage.removeItem(sessionStorageKey) }
+  } else {
+    localStorage.removeItem(sessionStorageKey)
+  }
+
   const radixDappToolkit = RadixDappToolkit({
     ...options,
     onDisconnect: () => {
