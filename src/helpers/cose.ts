@@ -47,7 +47,7 @@ export const CoseSign1Decoder = (verifyingKey: eddsa.KeyPair) => ({
   decodeAndVerify: (coseSign1: Uint8Array) => decodeAndVerifyCoseSign1(coseSign1, verifyingKey)
 })
 
-const ed25519Header = Buffer.from([0xa1, 0x01, 0x27]) // -7 = EdDSA
+const ed25519Header = new Uint8Array([0xa1, 0x01, 0x27]) // -7 = EdDSA
 
 export const encodeSign1 = async (
   payload: unknown,
@@ -62,7 +62,7 @@ export const encodeSign1 = async (
     payloadCbor,     // payload
   ])
 
-  const signature = Buffer.from(signingKey.sign(toBeSigned).toBytes())
+  const signature = new Uint8Array(signingKey.sign(toBeSigned).toBytes())
   const coseSign1 = await cbor.encodeOne([ed25519Header, {}, payloadCbor, signature])
 
   return coseSign1
