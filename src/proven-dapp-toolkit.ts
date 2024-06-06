@@ -1,7 +1,7 @@
 import { Pcrs, ProvenDappToolkitOptions, Session, SerializableSession } from './_types'
 
 import { RadixDappToolkit, RadixDappToolkitOptions } from '@radixdlt/radix-dapp-toolkit'
-import * as cbor from "cbor-web"
+import { decode as cborDecode } from "cbor-x"
 import { Sign1 } from "@auth0/cose"
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509"
 import { type WalletData } from '@radixdlt/radix-dapp-toolkit'
@@ -133,7 +133,7 @@ export const ProvenDappToolkit = (
     const data = new Uint8Array(await response.arrayBuffer())
 
     // decode COSE elements
-    const coseElements = await cbor.decodeFirst(data) as Uint8Array[]
+    const coseElements = await cborDecode(data) as Uint8Array[]
     const {
       cabundle,
       certificate,
@@ -141,11 +141,11 @@ export const ProvenDappToolkit = (
       pcrs: rawPcrs,
       public_key: verifyingKey,
       user_data: sessionId
-    } = await cbor.decodeFirst(coseElements[2]!) as {
+    } = await cborDecode(coseElements[2]!) as {
       cabundle: Uint8Array[],
       certificate: Uint8Array,
       nonce: Uint8Array,
-      pcrs: Map<number, Uint8Array>,
+      pcrs: { [index: number]: Uint8Array },
       public_key: Uint8Array,
       user_data: Uint8Array
     }
@@ -175,12 +175,12 @@ export const ProvenDappToolkit = (
     }
 
     const pcrs: Pcrs = {
-      0: uint8ArrayToHex(rawPcrs.get(0)!),
-      1: uint8ArrayToHex(rawPcrs.get(1)!),
-      2: uint8ArrayToHex(rawPcrs.get(2)!),
-      3: uint8ArrayToHex(rawPcrs.get(3)!),
-      4: uint8ArrayToHex(rawPcrs.get(4)!),
-      8: uint8ArrayToHex(rawPcrs.get(8)!),
+      0: uint8ArrayToHex(rawPcrs[0]!),
+      1: uint8ArrayToHex(rawPcrs[1]!),
+      2: uint8ArrayToHex(rawPcrs[2]!),
+      3: uint8ArrayToHex(rawPcrs[3]!),
+      4: uint8ArrayToHex(rawPcrs[4]!),
+      8: uint8ArrayToHex(rawPcrs[8]!),
     }
 
     // verify expected PCRs or throw error

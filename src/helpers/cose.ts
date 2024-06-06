@@ -1,4 +1,4 @@
-import * as cbor from "cbor-web"
+import { Encoder, decode, encode } from "cbor-x"
 import { eddsa } from "elliptic"
 import { uint8ArrayToHex } from "../helpers/uint8array"
 import { Result, ok, err } from 'neverthrow'
@@ -20,7 +20,7 @@ export const decodeAndVerifyCoseSign1 = async (
   coseSign1: Uint8Array,
   verifyingKey: eddsa.KeyPair,
 ): Promise<Result<unknown, string>> => {
-  const coseElements = await cbor.decodeFirst(coseSign1) as Uint8Array[]
+  const coseElements = await decode(coseSign1) as Uint8Array[]
 
   if (coseElements.length !== 4) {
     return err("Invalid COSE Sign1 structure.")
@@ -28,7 +28,7 @@ export const decodeAndVerifyCoseSign1 = async (
 
   const [protectedHeaders,, payload, signature] = coseElements
 
-  const toBeSigned = await cbor.encodeOne([
+  const toBeSigned = await encode([
     "Signature1",     // context
     protectedHeaders, // body_protected
     Buffer.alloc(0),  // external_aad (unused in this case)
@@ -39,7 +39,7 @@ export const decodeAndVerifyCoseSign1 = async (
     return err("COSE Sign1 verification failed.")
   }
 
-  const decodedPayload = await cbor.decodeFirst(payload)
+  const decodedPayload = await decode(payload)
   return ok(decodedPayload)
 }
 
@@ -47,23 +47,31 @@ export const CoseSign1Decoder = (verifyingKey: eddsa.KeyPair) => ({
   decodeAndVerify: (coseSign1: Uint8Array) => decodeAndVerifyCoseSign1(coseSign1, verifyingKey)
 })
 
-const ed25519Header = new Uint8Array([0xa1, 0x01, 0x27]) // -7 = EdDSA
+const ed25519Header = Buffer.from([0xa1, 0x01, 0x27]) // -7 = EdDSA
+const coseEncoder = new Encoder({
+  tagUint8Array: false,
+  useRecords: false,
+  mapsAsObjects: false,
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  useTag259ForMaps: false,
+})
 
 export const encodeSign1 = async (
   payload: unknown,
   signingKey: eddsa.KeyPair,
 ): Promise<Uint8Array> => {
-  const payloadCbor = await cbor.encodeOne(payload)
+  const payloadCbor = await encode(payload)
 
-  const toBeSigned = await cbor.encodeOne([
+  const toBeSigned = await encode([
     "Signature1",    // context
     ed25519Header,   // body_protected
     Buffer.alloc(0), // external_aad (unused in this case)
     payloadCbor,     // payload
   ])
 
-  const signature = new Uint8Array(signingKey.sign(toBeSigned).toBytes())
-  const coseSign1 = await cbor.encodeOne([ed25519Header, {}, payloadCbor, signature])
+  const signature = Buffer.from(signingKey.sign(toBeSigned).toBytes())
+  const coseSign1 = await coseEncoder.encode([ed25519Header, {}, payloadCbor, signature])
 
   return coseSign1
 }

@@ -1,7 +1,7 @@
 {
   "name": "@proven-network/proven-dapp-toolkit",
   "description": "Front-end SDK for Proven Network.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "homepage": "https://developers.proven.network",
   "engines": {
     "node": ">=16.0.0"
@@ -33,7 +33,7 @@
     "@auth0/cose": "^1.0.2",
     "@peculiar/x509": "^1.10.1",
     "@radixdlt/radix-dapp-toolkit": "^1.6.0",
-    "cbor-web": "^9.0.2"
+    "cbor-x": "^1.5.9"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.20.2",
