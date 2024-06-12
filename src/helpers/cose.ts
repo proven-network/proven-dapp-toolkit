@@ -16,17 +16,24 @@ import { Result, ok, err } from 'neverthrow'
 //   payload : bstr
 // ]
 
+type Payload = unknown
+type UnprotectedHeaders = Record<string, unknown>
+type DecodedMessage = {
+  headers: UnprotectedHeaders
+  payload: Payload
+}
+
 export const decodeAndVerifyCoseSign1 = async (
   coseSign1: Uint8Array,
   verifyingKey: eddsa.KeyPair,
-): Promise<Result<unknown, string>> => {
-  const coseElements = await decode(coseSign1) as Uint8Array[]
+): Promise<Result<DecodedMessage, string>> => {
+  const coseElements = await decode(coseSign1) as [Uint8Array, UnprotectedHeaders, Uint8Array, Uint8Array]
 
   if (coseElements.length !== 4) {
     return err("Invalid COSE Sign1 structure.")
   }
 
-  const [protectedHeaders,, payload, signature] = coseElements
+  const [protectedHeaders, unprotectedHeaders, payload, signature] = coseElements
 
   const toBeSigned = await encode([
     "Signature1",     // context
@@ -40,7 +47,7 @@ export const decodeAndVerifyCoseSign1 = async (
   }
 
   const decodedPayload = await decode(payload)
-  return ok(decodedPayload)
+  return ok({ headers: unprotectedHeaders, payload: decodedPayload })
 }
 
 export const CoseSign1Decoder = (verifyingKey: eddsa.KeyPair) => ({
@@ -60,6 +67,7 @@ const coseEncoder = new Encoder({
 export const encodeSign1 = async (
   payload: unknown,
   signingKey: eddsa.KeyPair,
+  unprotectedHeaders: Record<string, unknown> = {},
 ): Promise<Uint8Array> => {
   const payloadCbor = await encode(payload)
 
@@ -71,11 +79,11 @@ export const encodeSign1 = async (
   ])
 
   const signature = Buffer.from(signingKey.sign(toBeSigned).toBytes())
-  const coseSign1 = await coseEncoder.encode([ed25519Header, {}, payloadCbor, signature])
+  const coseSign1 = await coseEncoder.encode([ed25519Header, unprotectedHeaders, payloadCbor, signature])
 
   return coseSign1
 }
 
 export const CoseSign1Encoder = (signingKey: eddsa.KeyPair) => ({
-  encode: (payload: unknown) => encodeSign1(payload, signingKey)
+  encode: (payload: unknown, unprotectedHeaders: Record<string, unknown> = {}) => encodeSign1(payload, signingKey, unprotectedHeaders)
 })

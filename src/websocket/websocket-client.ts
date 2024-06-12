@@ -25,7 +25,21 @@ export const WebsocketClient = (
   let webSocket: WebSocket | undefined
   let connectionOpened = false
 
-  // const callbacks: Map<number, (data: any) => void> = new Map()
+  let rpcSeq = 0
+  let rpcCallbacks: Map<number, (data: any) => void> = new Map()
+
+  const closeAndResetWebSocket = () => {
+    if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+      webSocket.close()
+    }
+
+    webSocket = undefined
+    connectionOpened = false
+
+    // no point in keeping rpc state as it is connection-specific
+    rpcSeq = 0
+    rpcCallbacks = new Map()
+  }
 
   const openWebSocket = async () => {
     if (!localStorage.getItem(sessionStorageKey)) {
@@ -50,6 +64,21 @@ export const WebsocketClient = (
 
         if (decodedData.isOk()) {
           logger?.debug("Received data: ", decodedData.value)
+
+          const { seq } = decodedData.value.headers
+          if (typeof seq !== "number") {
+            logger?.debug("No seq found in headers: ", decodedData.value.headers)
+            return
+          }
+
+          const callback = rpcCallbacks.get(seq)
+          if (callback) {
+            logger?.debug(`Found callback for seq ${seq}`)
+            callback(decodedData.value.payload)
+            rpcCallbacks.delete(seq)
+          } else {
+            logger?.debug(`No callback found for seq ${seq}`)
+          }
         } else {
           logger?.debug("Failed to decode and verify data: ", decodedData.error)
         }
@@ -60,14 +89,12 @@ export const WebsocketClient = (
 
     webSocket.onclose = (event) => {
       logger?.debug("Connection closed", event.code, event.reason, event.wasClean)
-      webSocket = undefined
-      connectionOpened = false
+      closeAndResetWebSocket()
     }
 
     webSocket.onerror = () => {
       logger?.debug("Connection closed due to error")
-      webSocket = undefined
-      connectionOpened = false
+      closeAndResetWebSocket()
     }
   }
 
@@ -85,7 +112,12 @@ export const WebsocketClient = (
     const session = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
     const signingKey = eddsa.keyFromSecret(session.signingKey)
     const coseSign1Encoder = CoseSign1Encoder(signingKey)
-    const encodedData = await coseSign1Encoder.encode(data)
+    const seq = rpcSeq++
+    rpcCallbacks.set(seq, (data) => {
+      logger?.debug(`Received response to ${seq}: `, data)
+    })
+
+    const encodedData = await coseSign1Encoder.encode(data, { seq })
 
     webSocket!.send(encodedData)
   }
