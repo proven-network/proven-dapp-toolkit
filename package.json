@@ -32,7 +32,7 @@
   "dependencies": {
     "@auth0/cose": "^1.0.2",
     "@peculiar/x509": "^1.10.1",
-    "@radixdlt/radix-dapp-toolkit": "^1.6.0",
+    "@radixdlt/radix-dapp-toolkit": "^2.0.0",
     "cbor-x": "^1.5.9"
   },
   "devDependencies": {
