@@ -14,7 +14,7 @@ const [rdt, pdt] = ProvenDappToolkit({
   useCache: false,
 })
 
-rdt.walletApi.setRequestData(DataRequestBuilder.accounts().atLeast(1))
+rdt.walletApi.setRequestData(DataRequestBuilder.persona().withProof())
 
 rdt.walletApi.walletData$.subscribe((state) => {
   console.log(state)
