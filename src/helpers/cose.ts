@@ -1,4 +1,4 @@
-import { Encoder, decode, encode } from "cbor-x"
+import { Encoder, decode } from "cbor-x"
 import { eddsa } from "elliptic"
 import { uint8ArrayToHex } from "../helpers/uint8array"
 import { Result, ok, err } from 'neverthrow'
@@ -23,9 +23,20 @@ type DecodedMessage = {
   payload: Payload
 }
 
+const ed25519Header = Buffer.from([0xa1, 0x01, 0x27]) // -7 = EdDSA
+const coseEncoder = new Encoder({
+  tagUint8Array: false,
+  useRecords: false,
+  mapsAsObjects: false,
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  useTag259ForMaps: false,
+})
+
 export const decodeAndVerifyCoseSign1 = async (
   coseSign1: Uint8Array,
   verifyingKey: eddsa.KeyPair,
+  externalAad: Uint8Array = Buffer.alloc(0),
 ): Promise<Result<DecodedMessage, string>> => {
   const coseElements = await decode(coseSign1) as [Uint8Array, UnprotectedHeaders, Uint8Array, Uint8Array]
 
@@ -35,10 +46,10 @@ export const decodeAndVerifyCoseSign1 = async (
 
   const [protectedHeaders, unprotectedHeaders, payload, signature] = coseElements
 
-  const toBeSigned = await encode([
+  const toBeSigned = await coseEncoder.encode([
     "Signature1",     // context
     protectedHeaders, // body_protected
-    Buffer.alloc(0),  // external_aad (unused in this case)
+    externalAad,      // external_aad
     payload,          // payload
   ])
 
@@ -50,31 +61,22 @@ export const decodeAndVerifyCoseSign1 = async (
   return ok({ headers: unprotectedHeaders, payload: decodedPayload })
 }
 
-export const CoseSign1Decoder = (verifyingKey: eddsa.KeyPair) => ({
-  decodeAndVerify: (coseSign1: Uint8Array) => decodeAndVerifyCoseSign1(coseSign1, verifyingKey)
-})
-
-const ed25519Header = Buffer.from([0xa1, 0x01, 0x27]) // -7 = EdDSA
-const coseEncoder = new Encoder({
-  tagUint8Array: false,
-  useRecords: false,
-  mapsAsObjects: false,
-  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore
-  useTag259ForMaps: false,
+export const CoseSign1Decoder = (verifyingKey: eddsa.KeyPair, externalAad: Uint8Array = Buffer.alloc(0)) => ({
+  decodeAndVerify: (coseSign1: Uint8Array) => decodeAndVerifyCoseSign1(coseSign1, verifyingKey, externalAad)
 })
 
 export const encodeSign1 = async (
   payload: unknown,
   signingKey: eddsa.KeyPair,
+  externalAad: Uint8Array = Buffer.alloc(0),
   unprotectedHeaders: Record<string, unknown> = {},
 ): Promise<Uint8Array> => {
-  const payloadCbor = await encode(payload)
+  const payloadCbor = await coseEncoder.encode(payload)
 
-  const toBeSigned = await encode([
+  const toBeSigned = await coseEncoder.encode([
     "Signature1",    // context
     ed25519Header,   // body_protected
-    Buffer.alloc(0), // external_aad (unused in this case)
+    externalAad,     // external_aad
     payloadCbor,     // payload
   ])
 
@@ -84,6 +86,6 @@ export const encodeSign1 = async (
   return coseSign1
 }
 
-export const CoseSign1Encoder = (signingKey: eddsa.KeyPair) => ({
-  encode: (payload: unknown, unprotectedHeaders: Record<string, unknown> = {}) => encodeSign1(payload, signingKey, unprotectedHeaders)
+export const CoseSign1Encoder = (signingKey: eddsa.KeyPair, externalAad: Uint8Array = Buffer.alloc(0)) => ({
+  encode: (payload: unknown, unprotectedHeaders: Record<string, unknown> = {}) => encodeSign1(payload, signingKey, externalAad, unprotectedHeaders)
 })

@@ -2,6 +2,7 @@ import { type RadixDappToolkitOptions } from "@radixdlt/radix-dapp-toolkit"
 import { type SerializableSession } from "../_types"
 import { eddsa } from "elliptic"
 import { CoseSign1Decoder, CoseSign1Encoder } from "../helpers/cose"
+import { hexToUint8Array } from "../helpers/uint8array"
 
 export type WebsocketClient = {
   send: (data: string) => Promise<any>
@@ -48,13 +49,14 @@ export const WebsocketClient = (
     }
 
     const session = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
+    const externalAad = hexToUint8Array(session.sessionId)
 
     webSocket = new WebSocket(`wss://${host}/ws?session=${session.sessionId}`)
     webSocket.binaryType = "arraybuffer"
     webSocket.onopen = () => { connectionOpened = true }
 
     const verifyingKey = eddsa.keyFromPublic(session.verifyingKey)
-    const coseSign1Decoder = CoseSign1Decoder(verifyingKey)
+    const coseSign1Decoder = CoseSign1Decoder(verifyingKey, externalAad)
 
     webSocket.onmessage = async (event) => {
       if (typeof event.data === "object") {
@@ -63,8 +65,6 @@ export const WebsocketClient = (
         const decodedData = await coseSign1Decoder.decodeAndVerify(data)
 
         if (decodedData.isOk()) {
-          logger?.debug("Received data: ", decodedData.value)
-
           const { seq } = decodedData.value.headers
           if (typeof seq !== "number") {
             logger?.debug("No seq found in headers: ", decodedData.value.headers)
@@ -111,7 +111,8 @@ export const WebsocketClient = (
     // TODO: Don't intantiate all this stuff on every send
     const session = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
     const signingKey = eddsa.keyFromSecret(session.signingKey)
-    const coseSign1Encoder = CoseSign1Encoder(signingKey)
+    const externalAad = hexToUint8Array(session.sessionId)
+    const coseSign1Encoder = CoseSign1Encoder(signingKey, externalAad)
     const seq = rpcSeq++
     rpcCallbacks.set(seq, (data) => {
       logger?.debug(`Received response to ${seq}: `, data)
