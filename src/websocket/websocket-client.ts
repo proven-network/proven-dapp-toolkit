@@ -11,16 +11,16 @@ export type WebsocketClient = {
 export const WebsocketClient = (
   options: {
     eddsa: eddsa
-    host: string
     logger: RadixDappToolkitOptions['logger']
     sessionStorageKey: string
+    websocketEndpoint: string
   },
 ): WebsocketClient => {
   const {
     eddsa,
-    host,
     logger,
     sessionStorageKey,
+    websocketEndpoint,
   } = options
 
   let webSocket: WebSocket | undefined
@@ -51,7 +51,7 @@ export const WebsocketClient = (
     const session = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
     const externalAad = hexToUint8Array(session.sessionId)
 
-    webSocket = new WebSocket(`wss://${host}/ws?session=${session.sessionId}`)
+    webSocket = new WebSocket(`${websocketEndpoint}?session=${session.sessionId}`)
     webSocket.binaryType = "arraybuffer"
     webSocket.onopen = () => { connectionOpened = true }
 

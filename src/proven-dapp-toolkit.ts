@@ -1,4 +1,4 @@
-import { Pcrs, ProvenDappToolkitOptions, Session, SerializableSession } from './_types'
+import { NetworkEndpoints, Pcrs, ProvenDappToolkitOptions, Session, SerializableSession } from './_types'
 
 import { RadixDappToolkit, RadixDappToolkitOptions } from '@radixdlt/radix-dapp-toolkit'
 import { decode as cborDecode } from "cbor-x"
@@ -16,6 +16,28 @@ export type ProvenDappToolkit = {
   webSocketClient: WebsocketClient
 }
 
+const localDevelopmentEndpoints: NetworkEndpoints = {
+  createChallenge: 'http://localhost:3200/create-challenge',
+  rpc: 'http://localhost:3200/rpc',
+  verify: 'http://localhost:3200/verify',
+  websocket: 'ws://localhost:3200/ws',
+}
+
+const endpointsMap: Record<number, NetworkEndpoints> = {
+  1: {
+    createChallenge: 'https://mainnet.proven.network/create-challenge',
+    rpc: 'https://mainnet.proven.network/rpc',
+    verify: 'https://mainnet.proven.network/verify',
+    websocket: 'wss://mainnet.proven.network/ws',
+  },
+  2: {
+    createChallenge: 'https://stokenet.proven.network/create-challenge',
+    rpc: 'https://stokenet.proven.network/rpc',
+    verify: 'https://stokenet.proven.network/verify',
+    websocket: 'wss://stokenet.proven.network/ws',
+  }
+}
+
 export const ProvenDappToolkit = (
   options: RadixDappToolkitOptions & ProvenDappToolkitOptions,
 ): [RadixDappToolkit, ProvenDappToolkit] => {
@@ -23,6 +45,7 @@ export const ProvenDappToolkit = (
     applicationName,
     dAppDefinitionAddress,
     expectedPcrs,
+    localDevelopmentMode,
     logger,
     networkId,
   } = options || {}
@@ -71,23 +94,21 @@ export const ProvenDappToolkit = (
     isReady = true
   }
 
-  const provenNetworkHost = {
-    2: 'test.weareborderline.com',
-  }[networkId]
+  const endpoints = localDevelopmentMode ? localDevelopmentEndpoints : endpointsMap[networkId]
 
-  if (!provenNetworkHost) {
+  if (!endpoints) {
     throw new Error("Network not supported.")
   }
 
   const webSocketClient = WebsocketClient({
     eddsa,
-    host: provenNetworkHost,
     logger,
     sessionStorageKey,
+    websocketEndpoint: endpoints.websocket,
   })
 
   const getChallenge: () => Promise<string> = () =>
-    fetch(`https://${provenNetworkHost}/create-challenge`)
+    fetch(endpoints.createChallenge)
       .then((res) => res.text())
 
   radixDappToolkit.walletApi.provideChallengeGenerator(getChallenge)
@@ -121,7 +142,7 @@ export const ProvenDappToolkit = (
     if (applicationName) body.append("application_name", applicationName)
 
     // send attestation request
-    const response = await fetch(`https://${provenNetworkHost}/verify`, {
+    const response = await fetch(endpoints.verify, {
       method: "POST",
       body
     })
@@ -149,29 +170,33 @@ export const ProvenDappToolkit = (
       public_key: Uint8Array,
       user_data: Uint8Array
     }
-    const leaf = new X509Certificate(certificate)
 
-    // verify nonce or throw error
-    if (!areEqualUint8Array(nonceInput, nonce)) {
-      throw new Error("Attestation nonce does not match expected value.")
-    }
+    // Skip checks in local development mode
+    if (!localDevelopmentMode) {
+      const leaf = new X509Certificate(certificate)
 
-    // verify leaf still valid or throw error
-    if (leaf.notAfter < new Date()) {
-      throw new Error("Attestation document certificate has expired.")
-    }
+      // verify nonce or throw error
+      if (!areEqualUint8Array(nonceInput, nonce)) {
+        throw new Error("Attestation nonce does not match expected value.")
+      }
 
-    // verify cose sign1 or throw error
-    const publicKey = await crypto.subtle.importKey('spki', new Uint8Array(leaf.publicKey.rawData), { name: 'ECDSA', namedCurve: 'P-384' }, true, ['verify'])
-    await Sign1.decode(data).verify(publicKey)
+      // verify leaf still valid or throw error
+      if (leaf.notAfter < new Date()) {
+        throw new Error("Attestation document certificate has expired.")
+      }
 
-    // verify certificate chain or throw error
-    const knownCa = new X509Certificate(rootCertificate)
-    const chain = await new X509ChainBuilder({
-      certificates: cabundle.map((cert) => new X509Certificate(cert)),
-    }).build(leaf)
-    if (!chain[chain.length - 1]?.equal(knownCa)) {
-      throw new Error("x509 certificate chain does not have expected certificate authority.")
+      // verify cose sign1 or throw error
+      const publicKey = await crypto.subtle.importKey('spki', new Uint8Array(leaf.publicKey.rawData), { name: 'ECDSA', namedCurve: 'P-384' }, true, ['verify'])
+      await Sign1.decode(data).verify(publicKey)
+
+      // verify certificate chain or throw error
+      const knownCa = new X509Certificate(rootCertificate)
+      const chain = await new X509ChainBuilder({
+        certificates: cabundle.map((cert) => new X509Certificate(cert)),
+      }).build(leaf)
+      if (!chain[chain.length - 1]?.equal(knownCa)) {
+        throw new Error("x509 certificate chain does not have expected certificate authority.")
+      }
     }
 
     const pcrs: Pcrs = {

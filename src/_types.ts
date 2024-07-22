@@ -1,5 +1,12 @@
 import { eddsa } from "elliptic"
 
+export type NetworkEndpoints = {
+  createChallenge: string
+  rpc: string
+  verify: string
+  websocket: string
+}
+
 type PcrIndex = 0 | 1 | 2 | 3 | 4 | 8
 export type Pcrs = Record<PcrIndex, string>
 
@@ -21,6 +28,7 @@ export type SerializableSession = {
 
 type OptionalProvenDappToolkitOptions = {
   expectedPcrs: ExpectedPcrs
+  localDevelopmentMode: boolean
 }
 
 type RequiredProvenDappToolkitOptions = {
