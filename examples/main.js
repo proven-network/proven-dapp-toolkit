@@ -1,7 +1,4 @@
-import {
-  DataRequestBuilder,
-  RadixNetwork,
-} from '@radixdlt/radix-dapp-toolkit'
+import { DataRequestBuilder, RadixNetwork } from '@radixdlt/radix-dapp-toolkit'
 import { ProvenDappToolkit } from '../src/proven-dapp-toolkit'
 
 document.querySelector('#app').innerHTML = `

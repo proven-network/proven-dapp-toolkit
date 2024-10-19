@@ -7,7 +7,9 @@ export function areEqualUint8Array(a: Uint8Array, b: Uint8Array) {
 }
 
 export function uint8ArrayToHex(u8a: Uint8Array) {
-  return Array.prototype.map.call(u8a, (x: number) => ('00' + x.toString(16)).slice(-2)).join('')
+  return Array.prototype.map
+    .call(u8a, (x: number) => ('00' + x.toString(16)).slice(-2))
+    .join('')
 }
 
 export function hexToUint8Array(hex: string) {

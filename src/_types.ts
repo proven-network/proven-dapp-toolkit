@@ -1,4 +1,4 @@
-import { eddsa } from "elliptic"
+import { eddsa } from 'elliptic'
 
 export type NetworkEndpoints = {
   createChallenge: string
@@ -13,17 +13,17 @@ export type Pcrs = Record<PcrIndex, string>
 export type ExpectedPcrs = Partial<Pcrs>
 
 export type Session = {
-  sessionId: string,
-  pcrs: Pcrs,
-  signingKey: eddsa.KeyPair,
-  verifyingKey: eddsa.KeyPair,
+  sessionId: string
+  pcrs: Pcrs
+  signingKey: eddsa.KeyPair
+  verifyingKey: eddsa.KeyPair
 }
 
 export type SerializableSession = {
-  sessionId: string,
-  pcrs: Pcrs,
-  signingKey: string,   // hex
-  verifyingKey: string, // hex
+  sessionId: string
+  pcrs: Pcrs
+  signingKey: string // hex
+  verifyingKey: string // hex
 }
 
 type OptionalProvenDappToolkitOptions = {
@@ -36,5 +36,5 @@ type RequiredProvenDappToolkitOptions = {
   networkId: number
 }
 
-export type ProvenDappToolkitOptions = Partial<OptionalProvenDappToolkitOptions> &
-  RequiredProvenDappToolkitOptions
+export type ProvenDappToolkitOptions =
+  Partial<OptionalProvenDappToolkitOptions> & RequiredProvenDappToolkitOptions

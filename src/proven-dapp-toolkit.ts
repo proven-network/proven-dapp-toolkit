@@ -1,9 +1,18 @@
-import { NetworkEndpoints, Pcrs, ProvenDappToolkitOptions, Session, SerializableSession } from './_types'
+import {
+  NetworkEndpoints,
+  Pcrs,
+  ProvenDappToolkitOptions,
+  Session,
+  SerializableSession,
+} from './_types'
 
-import { RadixDappToolkit, RadixDappToolkitOptions } from '@radixdlt/radix-dapp-toolkit'
-import { decode as cborDecode } from "cbor-x"
-import { Sign1 } from "@auth0/cose"
-import { X509Certificate, X509ChainBuilder } from "@peculiar/x509"
+import {
+  RadixDappToolkit,
+  RadixDappToolkitOptions,
+} from '@radixdlt/radix-dapp-toolkit'
+import { decode as cborDecode } from 'cbor-x'
+import { Sign1 } from '@auth0/cose'
+import { X509Certificate, X509ChainBuilder } from '@peculiar/x509'
 import { type WalletData } from '@radixdlt/radix-dapp-toolkit'
 import elliptic from 'elliptic'
 import { areEqualUint8Array, uint8ArrayToHex } from './helpers/uint8array'
@@ -35,7 +44,7 @@ const endpointsMap: Record<number, NetworkEndpoints> = {
     rpc: 'https://stokenet.proven.network/rpc',
     verify: 'https://stokenet.proven.network/verify',
     websocket: 'wss://stokenet.proven.network/ws',
-  }
+  },
 }
 
 export const ProvenDappToolkit = (
@@ -59,13 +68,19 @@ export const ProvenDappToolkit = (
   const sessionStorageKey = `${storageKeyPrefix}:session`
 
   // Quick hack to purge current session if wallet storage removed or zeroed - must run before RadixDappToolkit init
-  const rdtWalletKey = `rdt:${dAppDefinitionAddress}:${networkId}`
+  const rdtWalletKey = `rdt:${dAppDefinitionAddress}:${networkId}:state`
   console.log(localStorage.getItem(rdtWalletKey))
   if (localStorage.getItem(rdtWalletKey)) {
     try {
-      const state = JSON.parse(localStorage.getItem(rdtWalletKey)!) as { sharedData?: { persona?: { proof?: boolean } } }
-      if (!state.sharedData?.persona?.proof) { localStorage.removeItem(sessionStorageKey) }
-    } catch (e) { localStorage.removeItem(sessionStorageKey) }
+      const state = JSON.parse(localStorage.getItem(rdtWalletKey)!) as {
+        sharedData?: { persona?: { proof?: boolean } }
+      }
+      if (!state.sharedData?.persona?.proof) {
+        localStorage.removeItem(sessionStorageKey)
+      }
+    } catch (e) {
+      localStorage.removeItem(sessionStorageKey)
+    }
   } else {
     localStorage.removeItem(sessionStorageKey)
   }
@@ -73,17 +88,19 @@ export const ProvenDappToolkit = (
   const radixDappToolkit = RadixDappToolkit({
     ...options,
     onDisconnect: () => {
-      localStorage.removeItem(sessionStorageKey);
+      localStorage.removeItem(sessionStorageKey)
 
       // TODO: revoke public key on remote server also
 
       isReady = false
       session = undefined
-    }
+    },
   })
 
   if (localStorage.getItem(sessionStorageKey)) {
-    const parsedSession = JSON.parse(localStorage.getItem(sessionStorageKey)!) as SerializableSession
+    const parsedSession = JSON.parse(
+      localStorage.getItem(sessionStorageKey)!,
+    ) as SerializableSession
 
     session = {
       ...parsedSession,
@@ -94,10 +111,12 @@ export const ProvenDappToolkit = (
     isReady = true
   }
 
-  const endpoints = localDevelopmentMode ? localDevelopmentEndpoints : endpointsMap[networkId]
+  const endpoints = localDevelopmentMode
+    ? localDevelopmentEndpoints
+    : endpointsMap[networkId]
 
   if (!endpoints) {
-    throw new Error("Network not supported.")
+    throw new Error('Network not supported.')
   }
 
   const webSocketClient = WebsocketClient({
@@ -108,8 +127,7 @@ export const ProvenDappToolkit = (
   })
 
   const getChallenge: () => Promise<string> = () =>
-    fetch(endpoints.createChallenge)
-      .then((res) => res.text())
+    fetch(endpoints.createChallenge).then((res) => res.text())
 
   radixDappToolkit.walletApi.provideChallengeGenerator(getChallenge)
 
@@ -117,14 +135,18 @@ export const ProvenDappToolkit = (
     const personaProofs = proofs.filter(({ type }) => type === 'persona')
 
     if (personaProofs.length === 0) {
-      logger?.debug("No persona proofs found. Use `.withProof()` on persona data request to enable Proven.")
+      logger?.debug(
+        'No persona proofs found. Use `.withProof()` on persona data request to enable Proven.',
+      )
     }
 
     if (personaProofs.length > 1) {
-      throw new Error("Multiple persona proofs found. Only one is allowed.")
+      throw new Error('Multiple persona proofs found. Only one is allowed.')
     }
 
-    const newSecretHex = uint8ArrayToHex(crypto.getRandomValues(new Uint8Array(32)))
+    const newSecretHex = uint8ArrayToHex(
+      crypto.getRandomValues(new Uint8Array(32)),
+    )
     const signingKey = eddsa.keyFromSecret(newSecretHex)
 
     // get bytes from private key
@@ -135,39 +157,48 @@ export const ProvenDappToolkit = (
     crypto.getRandomValues(nonceInput)
 
     const body = new FormData()
-    body.append("public_key", new Blob([publicKeyInput], { type: 'application/octet-stream' }))
-    body.append("nonce", new Blob([nonceInput], { type: 'application/octet-stream' }))
-    body.append("signed_challenge", new Blob([JSON.stringify(proofs)], { type: 'application/json' }))
-    body.append("dapp_definition_address", dAppDefinitionAddress)
-    if (applicationName) body.append("application_name", applicationName)
+    body.append(
+      'public_key',
+      new Blob([publicKeyInput], { type: 'application/octet-stream' }),
+    )
+    body.append(
+      'nonce',
+      new Blob([nonceInput], { type: 'application/octet-stream' }),
+    )
+    body.append(
+      'signed_challenge',
+      new Blob([JSON.stringify(proofs)], { type: 'application/json' }),
+    )
+    body.append('dapp_definition_address', dAppDefinitionAddress)
+    if (applicationName) body.append('application_name', applicationName)
 
     // send attestation request
     const response = await fetch(endpoints.verify, {
-      method: "POST",
-      body
+      method: 'POST',
+      body,
     })
 
     if (!response.ok) {
-      throw new Error("Failed to fetch attestation document.")
+      throw new Error('Failed to fetch attestation document.')
     }
 
     const data = new Uint8Array(await response.arrayBuffer())
 
     // decode COSE elements
-    const coseElements = await cborDecode(data) as Uint8Array[]
+    const coseElements = (await cborDecode(data)) as Uint8Array[]
     const {
       cabundle,
       certificate,
       nonce,
       pcrs: rawPcrs,
       public_key: verifyingKey,
-      user_data: sessionId
-    } = await cborDecode(coseElements[2]!) as {
-      cabundle: Uint8Array[],
-      certificate: Uint8Array,
-      nonce: Uint8Array,
-      pcrs: { [index: number]: Uint8Array },
-      public_key: Uint8Array,
+      user_data: sessionId,
+    } = (await cborDecode(coseElements[2]!)) as {
+      cabundle: Uint8Array[]
+      certificate: Uint8Array
+      nonce: Uint8Array
+      pcrs: { [index: number]: Uint8Array }
+      public_key: Uint8Array
       user_data: Uint8Array
     }
 
@@ -177,16 +208,22 @@ export const ProvenDappToolkit = (
 
       // verify nonce or throw error
       if (!areEqualUint8Array(nonceInput, nonce)) {
-        throw new Error("Attestation nonce does not match expected value.")
+        throw new Error('Attestation nonce does not match expected value.')
       }
 
       // verify leaf still valid or throw error
       if (leaf.notAfter < new Date()) {
-        throw new Error("Attestation document certificate has expired.")
+        throw new Error('Attestation document certificate has expired.')
       }
 
       // verify cose sign1 or throw error
-      const publicKey = await crypto.subtle.importKey('spki', new Uint8Array(leaf.publicKey.rawData), { name: 'ECDSA', namedCurve: 'P-384' }, true, ['verify'])
+      const publicKey = await crypto.subtle.importKey(
+        'spki',
+        new Uint8Array(leaf.publicKey.rawData),
+        { name: 'ECDSA', namedCurve: 'P-384' },
+        true,
+        ['verify'],
+      )
       await Sign1.decode(data).verify(publicKey)
 
       // verify certificate chain or throw error
@@ -195,7 +232,9 @@ export const ProvenDappToolkit = (
         certificates: cabundle.map((cert) => new X509Certificate(cert)),
       }).build(leaf)
       if (!chain[chain.length - 1]?.equal(knownCa)) {
-        throw new Error("x509 certificate chain does not have expected certificate authority.")
+        throw new Error(
+          'x509 certificate chain does not have expected certificate authority.',
+        )
       }
     }
 
@@ -209,11 +248,12 @@ export const ProvenDappToolkit = (
     }
 
     // verify expected PCRs or throw error
-    expectedPcrs && Object.entries(expectedPcrs).forEach(([index, expectedValue]) => {
-      if (pcrs[index as unknown as keyof Pcrs] !== expectedValue) {
-        throw new Error(`PCR${index} does not match expected value.`)
-      }
-    })
+    expectedPcrs &&
+      Object.entries(expectedPcrs).forEach(([index, expectedValue]) => {
+        if (pcrs[index as unknown as keyof Pcrs] !== expectedValue) {
+          throw new Error(`PCR${index} does not match expected value.`)
+        }
+      })
 
     isReady = true
     session = {
@@ -238,9 +278,12 @@ export const ProvenDappToolkit = (
     fetchAndVerifyAttestation(proofs)
   })
 
-  return [radixDappToolkit, {
-    pcrs: () => session?.pcrs,
-    ready: () => isReady,
-    webSocketClient, // TODO: don't actually expose this in final API
-  }]
+  return [
+    radixDappToolkit,
+    {
+      pcrs: () => session?.pcrs,
+      ready: () => isReady,
+      webSocketClient, // TODO: don't actually expose this in final API
+    },
+  ]
 }
