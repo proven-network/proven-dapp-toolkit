@@ -7,9 +7,9 @@ import { hexToUint8Array, uint8ArrayToHex } from '../helpers/uint8array'
 type WhoAmI = 'WhoAmI'
 type WhoAmIResponse = { identity_address: string; account_addresses: string[] }
 
-type Execute = { Execute: [any, string, any[]] }
-type ExecuteWithOptions = {
-  ExecuteWithOptions: [any, number, number, string, any[]]
+type ExecuteHash = { ExecuteHash: [any, any[]] }
+type Execute = {
+  Execute: [any, string, any[]]
 }
 type ExecuteOutput = string | number | boolean | null | undefined
 type ExecuteSuccess = {
@@ -21,14 +21,12 @@ type ExecuteSuccess = {
   logs: string[]
 }
 
-type RpcCall = WhoAmI | Execute | ExecuteWithOptions
+type RpcCall = WhoAmI | ExecuteHash | Execute
 
 export type WebsocketClient = {
   // Using any for script to work better with raw-loader out of the box
   execute: (
     script: any,
-    timeout: number,
-    memory: number,
     handler: string,
     args?: any[],
   ) => Promise<ExecuteOutput>
@@ -175,8 +173,6 @@ export const WebsocketClient = (options: {
 
   const execute = (
     script: any,
-    timeout: number,
-    memory: number,
     handler: string,
     args: any[] = [],
   ): Promise<ExecuteOutput> => {
@@ -184,13 +180,10 @@ export const WebsocketClient = (options: {
     return new Promise((resolve, reject) => {
       // SHA256 hash of the script, plus timeout and memory seperated by newlines
       crypto.subtle
-        .digest(
-          'SHA-256',
-          new TextEncoder().encode(`${script}\n${timeout}\n${memory}`),
-        )
+        .digest('SHA-256', new TextEncoder().encode(`${script}\n${handler}`))
         .then((rawHash) => uint8ArrayToHex(new Uint8Array(rawHash)))
-        .then((optionsHash) => {
-          send({ Execute: [optionsHash, handler, args] }, (data) => {
+        .then((moduleHash) => {
+          send({ ExecuteHash: [moduleHash, args] }, (data) => {
             if (data.ExecuteSuccess) {
               const result = data.ExecuteSuccess as ExecuteSuccess
 
@@ -206,7 +199,7 @@ export const WebsocketClient = (options: {
               // Retry with full options (populates the server cache for future requests)
               send(
                 {
-                  ExecuteWithOptions: [script, timeout, memory, handler, args],
+                  Execute: [script, handler, args],
                 },
                 (data) => {
                   if (data.ExecuteSuccess) {
