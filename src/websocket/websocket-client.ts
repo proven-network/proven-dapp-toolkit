@@ -7,9 +7,9 @@ import { hexToUint8Array, uint8ArrayToHex } from '../helpers/uint8array'
 type WhoAmI = 'WhoAmI'
 type WhoAmIResponse = { identity_address: string; account_addresses: string[] }
 
-type ExecuteHash = { ExecuteHash: [any, any[]] }
+type ExecuteHash = { ExecuteHash: [string, any[]] }
 type Execute = {
-  Execute: [any, string, any[]]
+  Execute: [string, string, any[]]
 }
 type ExecuteOutput = string | number | boolean | null | undefined
 type ExecuteSuccess = {
@@ -24,9 +24,8 @@ type ExecuteSuccess = {
 type RpcCall = WhoAmI | ExecuteHash | Execute
 
 export type WebsocketClient = {
-  // Using any for script to work better with raw-loader out of the box
   execute: (
-    script: any,
+    script: string,
     handler: string,
     args?: any[],
   ) => Promise<ExecuteOutput>
@@ -172,7 +171,7 @@ export const WebsocketClient = (options: {
   }
 
   const execute = (
-    script: any,
+    script: string,
     handler: string,
     args: any[] = [],
   ): Promise<ExecuteOutput> => {

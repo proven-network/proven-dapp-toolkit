@@ -26,6 +26,18 @@ export type SerializableSession = {
   verifyingKey: string // hex
 }
 
+type RpcCallData = {
+  args: any[]
+  exportName: string
+  source: string
+}
+
+export type RpcQueueItem = {
+  resolve: (data: any) => void
+  reject: (error: any) => void
+  rpcCallData: RpcCallData
+}
+
 type OptionalProvenDappToolkitOptions = {
   expectedPcrs: ExpectedPcrs
   localDevelopmentMode: boolean

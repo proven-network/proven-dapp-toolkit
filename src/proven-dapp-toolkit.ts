@@ -2,6 +2,7 @@ import {
   NetworkEndpoints,
   Pcrs,
   ProvenDappToolkitOptions,
+  RpcQueueItem,
   Session,
   SerializableSession,
 } from './_types'
@@ -97,20 +98,6 @@ export const ProvenDappToolkit = (
     },
   })
 
-  if (localStorage.getItem(sessionStorageKey)) {
-    const parsedSession = JSON.parse(
-      localStorage.getItem(sessionStorageKey)!,
-    ) as SerializableSession
-
-    session = {
-      ...parsedSession,
-      signingKey: eddsa.keyFromSecret(parsedSession.signingKey),
-      verifyingKey: eddsa.keyFromPublic(parsedSession.verifyingKey),
-    }
-
-    isReady = true
-  }
-
   const endpoints = localDevelopmentMode
     ? localDevelopmentEndpoints
     : endpointsMap[networkId]
@@ -125,6 +112,37 @@ export const ProvenDappToolkit = (
     sessionStorageKey,
     websocketEndpoint: endpoints.websocket,
   })
+
+  if (localStorage.getItem(sessionStorageKey)) {
+    const parsedSession = JSON.parse(
+      localStorage.getItem(sessionStorageKey)!,
+    ) as SerializableSession
+
+    session = {
+      ...parsedSession,
+      signingKey: eddsa.keyFromSecret(parsedSession.signingKey),
+      verifyingKey: eddsa.keyFromPublic(parsedSession.verifyingKey),
+    }
+
+    isReady = true
+
+    // const anyWindow = window as any
+    const existingQueue = window.provenRpcQueue
+
+    window.provenRpcQueue = {
+      push: ({ resolve, reject, rpcCallData }: RpcQueueItem) => {
+        const { args, exportName, source } = rpcCallData
+        webSocketClient.execute(source, exportName, args).then(resolve, reject)
+      },
+    }
+
+    if (Array.isArray(existingQueue)) {
+      existingQueue.forEach(({ resolve, reject, rpcCallData }) => {
+        const { args, exportName, source } = rpcCallData
+        webSocketClient.execute(source, exportName, args).then(resolve, reject)
+      })
+    }
+  }
 
   const getChallenge: () => Promise<string> = () =>
     fetch(endpoints.createChallenge).then((res) => res.text())
