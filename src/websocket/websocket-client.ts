@@ -12,13 +12,17 @@ type Execute = {
   Execute: [string, string, any[]]
 }
 type ExecuteOutput = string | number | boolean | null | undefined
+type ExecuteLog = {
+  level: string
+  args: ExecuteOutput[]
+}
 type ExecuteSuccess = {
   output: ExecuteOutput
   duration: {
     secs: number
     nanos: number
   }
-  logs: string[]
+  logs: ExecuteLog[]
 }
 
 type RpcCall = WhoAmI | ExecuteHash | Execute
@@ -154,18 +158,18 @@ export const WebsocketClient = (options: {
     webSocket!.send(encodedData)
   }
 
-  const processExecuteLogs = (logs: string[]) => {
+  const processExecuteLogs = (logs: ExecuteLog[]) => {
     logs.forEach((log) => {
-      if (log.startsWith('[log]')) {
-        logger?.info(log.substring(5))
-      } else if (log.startsWith('[error]')) {
-        logger?.error(log.substring(7))
-      } else if (log.startsWith('[warn]')) {
-        logger?.warn(log.substring(6))
-      } else if (log.startsWith('[debug]')) {
-        logger?.debug(log.substring(7))
-      } else if (log.startsWith('[info]')) {
-        logger?.info(log.substring(6))
+      if (log.level === 'log') {
+        logger?.info(...log.args)
+      } else if (log.level === 'error') {
+        logger?.error(...log.args)
+      } else if (log.level === 'warn') {
+        logger?.warn(...log.args)
+      } else if (log.level === 'debug') {
+        logger?.debug(...log.args)
+      } else if (log.level === 'info') {
+        logger?.info(...log.args)
       }
     })
   }
